@@ -5,7 +5,7 @@
  */
 
 /***********************************************************
- * Set up chart sizes
+ * Set up US center
  * *********************************************************
  */
 
@@ -15,37 +15,31 @@ let us_latlng = {
 };
 
 /***********************************************************
- * Set up tiles and controls
+ * Set up tiles to create base maps
  * *********************************************************
  */
 
-let streetmap = L.tileLayer("https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token={accessToken}", {
+let satellitemap = L.tileLayer("https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token={accessToken}", {
     attribution: "Map data &copy; <a href=\"https://www.openstreetmap.org/\">OpenStreetMap</a> contributors, <a href=\"https://creativecommons.org/licenses/by-sa/2.0/\">CC-BY-SA</a>, Imagery © <a href=\"https://www.mapbox.com/\">Mapbox</a>",
     maxZoom: 12,
-    id: "mapbox.streets",
+    id: "mapbox.streets-satellite",
     accessToken: API_KEY
 });
 
-let darkmap = L.tileLayer("https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token={accessToken}", {
+let outdoormap = L.tileLayer("https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token={accessToken}", {
     attribution: "Map data &copy; <a href=\"https://www.openstreetmap.org/\">OpenStreetMap</a> contributors, <a href=\"https://creativecommons.org/licenses/by-sa/2.0/\">CC-BY-SA</a>, Imagery © <a href=\"https://www.mapbox.com/\">Mapbox</a>",
     maxZoom: 12,
-    id: "mapbox.dark",
+    id: "mapbox.outdoors",
     accessToken: API_KEY
-})
-
-// Define a baseMaps object to hold our base layers
-let baseMaps = {
-    "Street Map": streetmap,
-    "Dark Map": darkmap
-};
-
-let myMap = L.map("map", {
-    center: [us_latlng.lat, us_latlng.lng],
-    zoom: 4.4,
-    layers: [streetmap]
 });
 
-L.control.layers(baseMaps).addTo(myMap);
+let whitemap = L.tileLayer("https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token={accessToken}", {
+    attribution: "Map data &copy; <a href=\"https://www.openstreetmap.org/\">OpenStreetMap</a> contributors, <a href=\"https://creativecommons.org/licenses/by-sa/2.0/\">CC-BY-SA</a>, Imagery © <a href=\"https://www.mapbox.com/\">Mapbox</a>",
+    maxZoom: 12,
+    id: "mapbox.light",
+    accessToken: API_KEY
+});
+
 
 /***********************************************************
  * Functions to color legends and convert time from API
@@ -75,17 +69,20 @@ function time_converter(timeval){
     return formattedTime;
 }
 
-function onEachFeature(feature, layer, latlng) {
+/***********************************************************
+ * Functions that will be called from inside GeoJson parsing
+ * *********************************************************
+ */
+
+function onEachFeature(feature, layer) {
     layer.on({
-        mouseover: function (event) {
-            layer = event.target;
-        },
-        mouseout: function (event) {
-            geoJson.resetStyle(event.target);
-        }
+        mouseover: function (event) { layer = event.target; },
+        mouseout: function (event) { geoJson.resetStyle(event.target); }
     });
     
-    layer.bindTooltip("<b>Time:</b> " + time_converter(parseInt(feature.properties.time)) + " <b>Magnitude:</b> " + feature.properties.mag + "<br> <b>Place:</b> " + feature.properties.place);
+    layer.bindTooltip("<b>Time:</b> " + time_converter(parseInt(feature.properties.time)) + 
+                        " <b>Magnitude:</b> " + feature.properties.mag + "<br> <b>Place:</b> " + feature.properties.place);
+    
 }
 
 function pointToLayer(feature, latlng) {
@@ -117,17 +114,66 @@ function addLegend() {
  * *********************************************************
  */
 const geoData = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
+const plateData = "https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_plates.json";
 
-// Grabbing our GeoJSON data..
+// We will utilize featureGroup (extension of LayerGroup) so we can use bring to front
+let geoJson, plateJson;
+let geoJsonLayer = L.featureGroup();
+let plateJsonLayer = L.featureGroup();
+
+// Grabbing our GeoJSON eartquake
 d3.json(geoData, function (data) {
-
     geoJson = L.geoJson(data, {
         pointToLayer: pointToLayer,
         onEachFeature: onEachFeature
-    }).addTo(myMap);
-
-    let legend = L.control({ position: 'bottomright' });
-    legend.onAdd = addLegend;
-    legend.addTo(myMap);
-
+    }).addTo(geoJsonLayer);
 });
+
+// Grabbing our GeoJSON plates
+d3.json(plateData, function (data) {
+    plateJson = L.geoJson(data, {
+        style: { 
+            color: "darkorange",
+            fillOpacity: 0
+        }
+    }).addTo(plateJsonLayer);
+});
+
+
+/***********************************************************
+ * Set up controls
+ * *********************************************************
+ */
+
+let myMap = L.map("map", {
+    center: [us_latlng.lat, us_latlng.lng],
+    zoom: 4.4,
+    layers: [satellitemap, geoJsonLayer, plateJsonLayer]
+});
+
+let legend = L.control({ position: 'bottomright' });
+legend.onAdd = addLegend;
+legend.addTo(myMap);
+
+let baseMaps = {
+    "Satellite Map": satellitemap,
+    "Grayscale Map": whitemap,
+    "Outdoor Map": outdoormap
+};
+
+let overLayMaps = {
+    "Earthquake": geoJsonLayer,
+    "Plates": plateJsonLayer
+};
+
+L.control.layers(baseMaps, overLayMaps, { collapsed: false }).addTo(myMap);
+
+/***********************************************************
+ * When the layers are interchanged, the bubble map has to be on top
+ * *********************************************************
+ */
+
+myMap.on("overlayadd", function () {
+    geoJsonLayer.bringToFront();
+});
+
